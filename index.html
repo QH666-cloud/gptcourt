@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>猫猫法庭 - 情侣吵架调解所</title>
+    <!-- Tailwind CSS CDN (保留用于快速样式，生产环境建议用 PostCSS，但这里为了简便保留) -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
       tailwind.config = {
@@ -34,6 +35,7 @@
         background-color: #fdfbf7;
       }
     </style>
+    <!-- 移除 importmap，改用标准的 Vite 模块打包 -->
   <script type="importmap">
 {
   "imports": {
@@ -42,12 +44,16 @@
     "react/": "https://aistudiocdn.com/react@^19.2.0/",
     "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0",
     "react-markdown": "https://aistudiocdn.com/react-markdown@^10.1.0",
-    "react-router-dom": "https://aistudiocdn.com/react-router-dom@^7.9.6"
+    "react-router-dom": "https://aistudiocdn.com/react-router-dom@^7.9.6",
+    "vite": "https://aistudiocdn.com/vite@^7.2.6",
+    "@vitejs/plugin-react": "https://aistudiocdn.com/@vitejs/plugin-react@^5.1.1"
   }
 }
 </script>
 </head>
   <body>
     <div id="root"></div>
+    <!-- 核心修复：显式引入入口文件 -->
+    <script type="module" src="/index.tsx"></script>
   </body>
 </html>
