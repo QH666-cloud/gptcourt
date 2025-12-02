@@ -1,3 +1,4 @@
+
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { RoomData, GenderRole } from '../types';
@@ -24,28 +25,39 @@ export const useRoomSync = (roomId: string, role: GenderRole) => {
     if (!roomId) return;
 
     const fetchOrInitRoom = async () => {
+      console.log(`🔍 [RoomSync] 开始初始化房间: ${roomId}`);
       try {
         setLoading(true);
-        // 尝试获取房间数据
+        
+        // A. 尝试获取房间数据
         let { data, error } = await supabase
           .from('rooms')
           .select('*')
           .eq('id', roomId)
           .single();
 
+        // B. 处理查询结果
         if (error && error.code === 'PGRST116') {
           // PGRST116: 结果为空，说明房间不存在，需要创建
-          console.log("房间不存在，正在初始化...", roomId);
+          console.log(`✨ [RoomSync] 房间 ${roomId} 不存在，正在创建...`);
+          
           const { data: newData, error: insertError } = await supabase
             .from('rooms')
             .insert([{ id: roomId }])
             .select()
             .single();
           
-          if (insertError) throw insertError;
+          if (insertError) {
+            console.error("❌ [RoomSync] 创建房间失败:", insertError);
+            throw insertError;
+          }
+          console.log("✅ [RoomSync] 房间创建成功:", newData);
           data = newData;
         } else if (error) {
+          console.error("❌ [RoomSync] 查询房间失败:", error);
           throw error;
+        } else {
+          console.log("✅ [RoomSync] 房间已存在，加载数据:", data);
         }
 
         if (data) {
@@ -54,7 +66,7 @@ export const useRoomSync = (roomId: string, role: GenderRole) => {
           roomDataRef.current = typedData;
         }
       } catch (err: any) {
-        console.error("Supabase Error:", err);
+        console.error("🔥 [RoomSync] 初始化过程发生异常:", err);
         setError(err.message || "无法连接到房间数据");
       } finally {
         setLoading(false);
@@ -68,6 +80,7 @@ export const useRoomSync = (roomId: string, role: GenderRole) => {
   useEffect(() => {
     if (!roomId) return;
 
+    console.log(`📡 [RoomSync] 正在订阅实时频道: room:${roomId}`);
     const channel = supabase
       .channel(`room:${roomId}`)
       .on(
@@ -82,49 +95,57 @@ export const useRoomSync = (roomId: string, role: GenderRole) => {
           // 当数据库发生变化（可能是对方修改的），更新本地状态
           const newData = payload.new as RoomData;
           
-          // 只有当变更的数据和当前本地显示的数据不一样时才更新，
-          // 避免自己输入时的回显导致光标跳动等问题（虽然 React Controlled Component 通常能处理）
+          // 简单对比，避免循环更新
           if (JSON.stringify(newData) !== JSON.stringify(roomDataRef.current)) {
-            console.log("收到对方更新:", newData);
+            console.log("📨 [RoomSync] 收到实时更新推送:", newData);
             setRoomData(newData);
             roomDataRef.current = newData;
           }
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log(`📡 [RoomSync] 订阅状态: ${status}`);
+      });
 
     return () => {
+      console.log(`🔌 [RoomSync] 断开订阅: room:${roomId}`);
       supabase.removeChannel(channel);
     };
   }, [roomId]);
 
   // 3. 防抖更新数据库
-  // 使用 useCallback + debounce 避免频繁请求数据库
+  // 注意：debounce 返回的函数也是需要被 useCallback 缓存的
   const updateDb = useCallback(
-    debounce(async (id: string, updates: Partial<RoomData>) => {
-      console.log("正在同步到数据库...", updates);
-      const { error } = await supabase
+    debounce((id: string, updates: Partial<RoomData>) => {
+      console.log(`💾 [RoomSync] 正在保存数据到 DB (ID: ${id})...`, updates);
+      
+      supabase
         .from('rooms')
         .update(updates)
-        .eq('id', id);
-      
-      if (error) console.error("同步失败:", error);
+        .eq('id', id)
+        .then(({ error }) => {
+          if (error) {
+            console.error("❌ [RoomSync] 保存失败:", error);
+          } else {
+            console.log("✅ [RoomSync] 保存成功");
+          }
+        });
     }, 500), // 500ms 防抖
     []
   );
 
   // 4. 对外暴露的更新方法
-  // 这些方法会立即更新本地 UI (Optimistic UI)，然后延迟写入 DB
-  
   const updateLocalAndDb = (updates: Partial<RoomData>) => {
+    // 乐观 UI 更新：先改本地
     const newData = { ...roomDataRef.current, ...updates };
     setRoomData(newData);
     roomDataRef.current = newData;
+    
+    // 异步写库
     updateDb(roomId, updates);
   };
 
   const updateMale = (story: string, feelings: string) => {
-    // 只有当自己是男性时，才有权限调用这个（虽然 UI 层也会拦）
     updateLocalAndDb({ male_story: story, male_feelings: feelings });
   };
 
@@ -132,7 +153,6 @@ export const useRoomSync = (roomId: string, role: GenderRole) => {
     updateLocalAndDb({ female_story: story, female_feelings: feelings });
   };
 
-  // 单独更新某个字段的辅助函数（方便绑定 onChange）
   const updateField = (field: keyof RoomData, value: string) => {
     updateLocalAndDb({ [field]: value });
   };
@@ -143,6 +163,6 @@ export const useRoomSync = (roomId: string, role: GenderRole) => {
     error,
     updateMale,
     updateFemale,
-    updateField // 暴露通用更新方法，方便组件使用
+    updateField 
   };
 };
