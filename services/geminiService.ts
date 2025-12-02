@@ -1,45 +1,45 @@
+
 import { GoogleGenAI } from "@google/genai";
 import { CaseDetails } from "../types";
 
-// Initialize the Gemini Client
-// IMPORTANT: In Vercel, set API_KEY in Environment Variables.
-// For local dev, ensure process.env.API_KEY is available.
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+// 初始化 AI 客户端
+// 注意：在 vite.config.ts 中我们配置了 define，使得 process.env.API_KEY 在浏览器中可用
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 /**
- * Calls the "Cat Judge" API.
- * 
- * This function encapsulates the prompt logic and API interaction.
- * If you need to replace this with a different backend later, maintain this signature.
+ * 调用猫猫法官 API
  */
 export const callCatJudgeApi = async (details: CaseDetails): Promise<string> => {
+  // 检查 API Key 是否存在 (Vercel 环境变量)
+  // 这里的检查是为了给开发者一个友好的提示，防止未配置 Key 时直接崩掉
   if (!process.env.API_KEY) {
-    console.warn("API Key is missing. Returning mock response for development.");
-    // Fallback for demo purposes if no key is present
+    console.warn("未检测到 API_KEY，将返回模拟数据。请在 Vercel 环境变量中设置 API_KEY。");
     return mockResponse(); 
   }
 
   try {
     const prompt = constructCatJudgePrompt(details);
     
+    // 使用 gemini-2.5-flash 模型 (适合文本任务)
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
       contents: prompt,
       config: {
-        temperature: 0.7, // Creative but balanced
+        temperature: 0.7,
         systemInstruction: "你是一个温柔、公正、擅长情感沟通的“猫猫法官”，会以理性+共情的方式，帮助情侣分析矛盾和责任，并给出缓和关系的建议。语气温和但不油腻，适度可爱。",
       }
     });
 
-    return response.text || "猫猫法官正在打盹，请稍后再试喵～ (API Returned empty)";
+    // 纠正：在新版 SDK 中，直接访问 .text 属性，而不是调用 .text() 方法
+    return response.text || "猫猫法官正在打盹，请稍后再试喵～ (返回内容为空)";
   } catch (error) {
-    console.error("Error calling Gemini API:", error);
-    return "猫猫法官连接断开了，请检查网络或 API Key 设置喵！(Error: " + (error instanceof Error ? error.message : String(error)) + ")";
+    console.error("调用 Gemini API 出错:", error);
+    return "猫猫法官连接断开了，请检查网络或 API Key 设置喵！(错误信息: " + (error instanceof Error ? error.message : String(error)) + ")";
   }
 };
 
 /**
- * Constructs the specific prompt based on user requirements.
+ * 构建 Prompt
  */
 const constructCatJudgePrompt = (details: CaseDetails): string => {
   return `
@@ -68,7 +68,7 @@ const constructCatJudgePrompt = (details: CaseDetails): string => {
   `;
 };
 
-// Mock response for development when no API Key is set
+// 模拟返回数据（当没有 API Key 时使用）
 const mockResponse = () => {
   return new Promise<string>((resolve) => {
     setTimeout(() => {
@@ -87,17 +87,17 @@ const mockResponse = () => {
 
 **5. 责任分析**
 在这个案件中，双方都有责任喵。
-男方打破了约定在先，且沟通时可能语气不够好，有主要责任；
+男方打破了约定在先，且沟通时可能过于生硬，有主要责任；
 女方在对方表达疲惫时，可能过于执着于当下的规则，没有给予缓冲空间。
 但这都不是原则性大错，只是磨合问题哦。
 
 **6. 和解建议**
-*   **给男方：** 建议先抱抱她，说“对不起，我不该答应了不做，昨天确实太累了，但我态度不好让你伤心了”。如果真的累，可以提议“我休息30分钟再去洗”或者“作为补偿我明天全包”。
-*   **给女方：** 建议表达感受而不是指责，比如“我看到碗没洗觉得很累，以为你不在乎我们的约定”，而不是“你总是这样说话不算话”。
+*   **给男方：** 建议先抱抱她，说“对不起，我不该答应了不做，昨天确实太累了，但我态度不好让你伤心了”。
+*   **给女方：** 建议表达感受而不是指责，比如“我看到碗没洗觉得很累，以为你不在乎我们的约定”。
 
 **7. 猫猫结语**
 家是讲爱的地方，不是讲理的地方。碗可以明天洗，但爱人要今天抱。快去和好吧喵～
       `);
-    }, 2000);
+    }, 1500);
   });
 };
