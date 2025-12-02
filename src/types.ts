@@ -1,4 +1,3 @@
-
 export enum GenderRole {
   MALE = 'MALE',
   FEMALE = 'FEMALE'

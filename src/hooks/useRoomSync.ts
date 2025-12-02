@@ -1,7 +1,6 @@
-
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabaseClient';
-import { RoomData } from '../types';
+import { RoomData, GenderRole } from '../types';
 import debounce from 'lodash/debounce';
 
 const DEFAULT_ROOM_DATA: RoomData = {
@@ -12,12 +11,12 @@ const DEFAULT_ROOM_DATA: RoomData = {
   female_feelings: ''
 };
 
-export const useRoomSync = (roomId: string) => {
+export const useRoomSync = (roomId: string, role: GenderRole) => {
   const [roomData, setRoomData] = useState<RoomData>(DEFAULT_ROOM_DATA);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   
-  // 使用 Ref 保存最新的 roomData，供 debounce 函数引用，防止闭包过时问题
+  // 使用 Ref 保存最新的 roomData，防止闭包问题
   const roomDataRef = useRef(roomData);
 
   // 1. 初始化房间数据 (Get or Create)
@@ -35,8 +34,8 @@ export const useRoomSync = (roomId: string) => {
           .single();
 
         if (error && error.code === 'PGRST116') {
-          // 如果房间不存在 (PGRST116)，则创建新房间
-          console.log("房间不存在，正在创建...", roomId);
+          // PGRST116: 结果为空，说明房间不存在，需要创建
+          console.log("房间不存在，正在初始化...", roomId);
           const { data: newData, error: insertError } = await supabase
             .from('rooms')
             .insert([{ id: roomId }])
@@ -50,12 +49,13 @@ export const useRoomSync = (roomId: string) => {
         }
 
         if (data) {
-          setRoomData(data as RoomData);
-          roomDataRef.current = data as RoomData;
+          const typedData = data as RoomData;
+          setRoomData(typedData);
+          roomDataRef.current = typedData;
         }
       } catch (err: any) {
         console.error("Supabase Error:", err);
-        setError(err.message);
+        setError(err.message || "无法连接到房间数据");
       } finally {
         setLoading(false);
       }
@@ -79,10 +79,16 @@ export const useRoomSync = (roomId: string) => {
           filter: `id=eq.${roomId}`,
         },
         (payload) => {
-          console.log("收到实时更新:", payload);
+          // 当数据库发生变化（可能是对方修改的），更新本地状态
           const newData = payload.new as RoomData;
-          setRoomData(newData);
-          roomDataRef.current = newData;
+          
+          // 只有当变更的数据和当前本地显示的数据不一样时才更新，
+          // 避免自己输入时的回显导致光标跳动等问题（虽然 React Controlled Component 通常能处理）
+          if (JSON.stringify(newData) !== JSON.stringify(roomDataRef.current)) {
+            console.log("收到对方更新:", newData);
+            setRoomData(newData);
+            roomDataRef.current = newData;
+          }
         }
       )
       .subscribe();
@@ -92,8 +98,8 @@ export const useRoomSync = (roomId: string) => {
     };
   }, [roomId]);
 
-  // 3. 防抖更新数据库 (Debounced Update)
-  // 使用 useCallback 确保 debounce 函数不会在每次渲染时重建
+  // 3. 防抖更新数据库
+  // 使用 useCallback + debounce 避免频繁请求数据库
   const updateDb = useCallback(
     debounce(async (id: string, updates: Partial<RoomData>) => {
       console.log("正在同步到数据库...", updates);
@@ -107,16 +113,36 @@ export const useRoomSync = (roomId: string) => {
     []
   );
 
-  // 4. 更新本地状态并触发 DB 同步
-  const updateField = (field: keyof RoomData, value: string) => {
-    // 立即更新 UI，保证输入流畅
-    const newData = { ...roomData, [field]: value };
+  // 4. 对外暴露的更新方法
+  // 这些方法会立即更新本地 UI (Optimistic UI)，然后延迟写入 DB
+  
+  const updateLocalAndDb = (updates: Partial<RoomData>) => {
+    const newData = { ...roomDataRef.current, ...updates };
     setRoomData(newData);
     roomDataRef.current = newData;
-
-    // 触发防抖写入
-    updateDb(roomId, { [field]: value });
+    updateDb(roomId, updates);
   };
 
-  return { roomData, updateField, loading, error };
+  const updateMale = (story: string, feelings: string) => {
+    // 只有当自己是男性时，才有权限调用这个（虽然 UI 层也会拦）
+    updateLocalAndDb({ male_story: story, male_feelings: feelings });
+  };
+
+  const updateFemale = (story: string, feelings: string) => {
+    updateLocalAndDb({ female_story: story, female_feelings: feelings });
+  };
+
+  // 单独更新某个字段的辅助函数（方便绑定 onChange）
+  const updateField = (field: keyof RoomData, value: string) => {
+    updateLocalAndDb({ [field]: value });
+  };
+
+  return { 
+    roomData, 
+    loading, 
+    error,
+    updateMale,
+    updateFemale,
+    updateField // 暴露通用更新方法，方便组件使用
+  };
 };
