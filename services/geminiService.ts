@@ -2,25 +2,28 @@
 import { GoogleGenAI } from "@google/genai";
 import { CaseDetails } from "../types";
 
-// 初始化 AI 客户端
-// 注意：在 vite.config.ts 中我们配置了 define，使得 process.env.API_KEY 在浏览器中可用
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-
 /**
  * 调用猫猫法官 API
  */
 export const callCatJudgeApi = async (details: CaseDetails): Promise<string> => {
-  // 检查 API Key 是否存在 (Vercel 环境变量)
-  // 这里的检查是为了给开发者一个友好的提示，防止未配置 Key 时直接崩掉
-  if (!process.env.API_KEY) {
-    console.warn("未检测到 API_KEY，将返回模拟数据。请在 Vercel 环境变量中设置 API_KEY。");
+  // 1. 安全检查：在函数调用时才检查 Key
+  // 这里的 process.env.API_KEY 是由 vite.config.ts 在构建时注入的字符串
+  const apiKey = process.env.API_KEY;
+
+  if (!apiKey || apiKey.length === 0) {
+    console.warn("⚠️ 未检测到 API_KEY，将返回模拟数据。");
+    console.warn("请确保在 Vercel 的 [Settings] -> [Environment Variables] 中添加了 API_KEY。");
     return mockResponse(); 
   }
 
   try {
+    // 2. 延迟初始化：只有在点击按钮后，才创建 SDK 实例
+    // 这样即使 Key 有问题，也不会导致整个页面白屏崩溃
+    const ai = new GoogleGenAI({ apiKey: apiKey });
+
     const prompt = constructCatJudgePrompt(details);
     
-    // 使用 gemini-2.5-flash 模型 (适合文本任务)
+    // 使用 gemini-2.5-flash 模型
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
       contents: prompt,
@@ -30,10 +33,10 @@ export const callCatJudgeApi = async (details: CaseDetails): Promise<string> => 
       }
     });
 
-    // 纠正：在新版 SDK 中，直接访问 .text 属性，而不是调用 .text() 方法
     return response.text || "猫猫法官正在打盹，请稍后再试喵～ (返回内容为空)";
   } catch (error) {
     console.error("调用 Gemini API 出错:", error);
+    // 即使初始化失败（比如 Key 无效），也捕获错误，防止界面卡死
     return "猫猫法官连接断开了，请检查网络或 API Key 设置喵！(错误信息: " + (error instanceof Error ? error.message : String(error)) + ")";
   }
 };
@@ -68,7 +71,7 @@ const constructCatJudgePrompt = (details: CaseDetails): string => {
   `;
 };
 
-// 模拟返回数据（当没有 API Key 时使用）
+// 模拟返回数据
 const mockResponse = () => {
   return new Promise<string>((resolve) => {
     setTimeout(() => {
